@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, 
@@ -27,7 +27,10 @@ import {
   TrendingUp,
   Activity,
   Cpu,
-  Layers
+  Layers,
+  Zap,
+  Shield,
+  Archive
 } from 'lucide-react';
 import { useAppStore, agents } from '@/store/appStore';
 import type { BannerPanel, RoutingMode } from '@/types';
@@ -74,6 +77,12 @@ export function AgentBanner({ agentId, onClose }: AgentBannerProps) {
   const [showRoutingSelector, setShowRoutingSelector] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // Swipe state for panel switching
+  const swipeStartX = useRef(0);
+  const swipeStartY = useRef(0);
+  const isSwiping = useRef(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+
   const agent = agents.find(a => a.id === agentId);
   if (!agent) return null;
 
@@ -87,17 +96,39 @@ export function AgentBanner({ agentId, onClose }: AgentBannerProps) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [agentChatMessages]);
 
-  // Panel navigation
-  const panels: BannerPanel[] = ['metrics', 'chat', 'summary'];
+  // Panel navigation — new order: chat → prompts → metrics
+  const panels: BannerPanel[] = ['chat', 'prompts', 'metrics'];
   const currentPanelIndex = panels.indexOf(bannerPanel);
 
-  const goToPanel = (direction: 'prev' | 'next') => {
-    if (direction === 'prev' && currentPanelIndex > 0) {
-      setBannerPanel(panels[currentPanelIndex - 1]);
-    } else if (direction === 'next' && currentPanelIndex < panels.length - 1) {
-      setBannerPanel(panels[currentPanelIndex + 1]);
+  const goToPanel = useCallback((direction: 'prev' | 'next') => {
+    const idx = panels.indexOf(bannerPanel);
+    if (direction === 'prev' && idx > 0) {
+      setBannerPanel(panels[idx - 1]);
+    } else if (direction === 'next' && idx < panels.length - 1) {
+      setBannerPanel(panels[idx + 1]);
     }
-  };
+  }, [bannerPanel, setBannerPanel]);
+
+  // Swipe handlers for panel switching
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    swipeStartX.current = e.touches[0].clientX;
+    swipeStartY.current = e.touches[0].clientY;
+    isSwiping.current = false;
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    const deltaX = e.changedTouches[0].clientX - swipeStartX.current;
+    const deltaY = e.changedTouches[0].clientY - swipeStartY.current;
+
+    // Only trigger if horizontal swipe is dominant (> 50px, and more horizontal than vertical)
+    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
+      if (deltaX < 0) {
+        goToPanel('next'); // swipe left → next panel
+      } else {
+        goToPanel('prev'); // swipe right → previous panel
+      }
+    }
+  }, [goToPanel]);
 
   // Handle chat send
   const handleSendMessage = () => {
@@ -107,135 +138,64 @@ export function AgentBanner({ agentId, onClose }: AgentBannerProps) {
     addCommunicationLog('Human', agent.name, chatInput, 'speech');
     setChatInput('');
     
-    // Simulate agent response
     setTimeout(() => {
       setIsTyping(false);
       addCommunicationLog(agent.name, 'Human', `Response from ${agent.name}: Processing your request...`, 'speech');
     }, 1500);
   };
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts — updated for new panel order
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === '1') {
         e.preventDefault();
-        setBannerPanel('metrics');
+        setBannerPanel('chat');
       } else if (e.ctrlKey && e.key === '2') {
         e.preventDefault();
-        setBannerPanel('chat');
+        setBannerPanel('prompts');
       } else if (e.ctrlKey && e.key === '3') {
         e.preventDefault();
-        setBannerPanel('summary');
+        setBannerPanel('metrics');
       } else if (e.key === 'Escape') {
         onClose();
+      } else if (e.key === 'ArrowLeft') {
+        goToPanel('prev');
+      } else if (e.key === 'ArrowRight') {
+        goToPanel('next');
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setBannerPanel, onClose]);
+  }, [setBannerPanel, onClose, goToPanel]);
 
-  // Panel content components
-  const MetricsPanel = () => (
-    <div className="space-y-4 p-4">
-      {/* Performance Metrics */}
-      <div className="glass-panel p-4">
-        <h4 className="text-white/70 text-sm font-medium mb-3 flex items-center gap-2">
-          <BarChart3 size={16} className="text-indigo-400" />
-          Performance Metrics
-        </h4>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { label: 'Response Time', value: '1.2s', icon: Clock, color: '#4CAF50' },
-            { label: 'Accuracy Score', value: '94%', icon: TrendingUp, color: '#2196F3' },
-            { label: 'Tasks Completed', value: '47', icon: Check, color: '#FF9800' },
-            { label: 'Active Iterations', value: '3', icon: Activity, color: '#9C27B0' },
-            { label: 'Resource Usage', value: '62%', icon: Cpu, color: '#00BCD4' },
-            { label: 'Contributions', value: 'High', icon: Layers, color: '#E91E63' },
-          ].map((metric) => (
-            <div key={metric.label} className="bg-white/5 rounded-lg p-3">
-              <div className="flex items-center gap-2 mb-1">
-                <metric.icon size={14} style={{ color: metric.color }} />
-                <span className="text-white/50 text-xs">{metric.label}</span>
-              </div>
-              <div className="text-white text-lg font-semibold">{metric.value}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Current Tasks */}
-      <div className="glass-panel p-4">
-        <h4 className="text-white/70 text-sm font-medium mb-3 flex items-center gap-2">
-          <Check size={16} className="text-green-400" />
-          Current Tasks
-        </h4>
-        <div className="space-y-2">
-          {[
-            { task: 'Analyze pricing model risks', completed: true },
-            { task: 'Generate alternative approaches', completed: true },
-            { task: 'Validate enterprise segment assumptions', completed: false },
-            { task: 'Prepare synthesis report', completed: false },
-          ].map((item, idx) => (
-            <label 
-              key={idx} 
-              className="flex items-center gap-3 p-2 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer transition-colors"
-            >
-              <input 
-                type="checkbox" 
-                checked={item.completed}
-                readOnly
-                className="w-4 h-4 rounded border-white/30 bg-white/10 text-indigo-500 focus:ring-indigo-500"
-              />
-              <span className={cn(
-                "text-sm transition-all",
-                item.completed ? "text-white/40 line-through" : "text-white/80"
-              )}>
-                {item.task}
-              </span>
-            </label>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-
+  // === PANEL 1: CHAT (first screen) ===
   const ChatPanel = () => (
     <div className="flex flex-col h-full">
-      {/* Chat Header */}
       <div className="p-3 border-b border-white/10 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <MessageSquare size={16} className="text-blue-400" />
           <span className="text-white/70 text-sm">Live Chat with {agent.name}</span>
         </div>
         <div className="flex items-center gap-2">
-          <div 
-            className="w-2 h-2 rounded-full animate-pulse"
-            style={{ backgroundColor: agent.color }}
-          />
+          <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: agent.color }} />
           <span className="text-white/50 text-xs">Online</span>
         </div>
       </div>
 
-      {/* Chat Messages */}
       <ScrollArea className="flex-1 p-4">
         <div className="space-y-3">
           {agentChatMessages.map((msg) => (
             <div 
               key={msg.id} 
-              className={cn(
-                "flex flex-col",
-                msg.from === 'Human' ? "items-end" : "items-start"
-              )}
+              className={cn("flex flex-col", msg.from === 'Human' ? "items-end" : "items-start")}
             >
-              <div 
-                className={cn(
-                  "max-w-[80%] px-3 py-2 rounded-xl text-sm",
-                  msg.from === 'Human' 
-                    ? "bg-indigo-500/30 text-white rounded-br-sm" 
-                    : "bg-white/10 text-white/90 rounded-bl-sm"
-                )}
-              >
+              <div className={cn(
+                "max-w-[80%] px-3 py-2 rounded-xl text-sm",
+                msg.from === 'Human' 
+                  ? "bg-indigo-500/30 text-white rounded-br-sm" 
+                  : "bg-white/10 text-white/90 rounded-bl-sm"
+              )}>
                 <div className="text-xs text-white/50 mb-1">{msg.from}</div>
                 {msg.message}
               </div>
@@ -243,7 +203,6 @@ export function AgentBanner({ agentId, onClose }: AgentBannerProps) {
             </div>
           ))}
           
-          {/* Typing indicator */}
           {isTyping && (
             <div className="flex items-start gap-2">
               <div className="px-3 py-2 rounded-xl bg-white/10 rounded-bl-sm">
@@ -263,7 +222,6 @@ export function AgentBanner({ agentId, onClose }: AgentBannerProps) {
         </div>
       </ScrollArea>
 
-      {/* Chat Input */}
       <div className="p-3 border-t border-white/10">
         <div className="flex items-center gap-2">
           <div className="flex-1 relative">
@@ -297,66 +255,205 @@ export function AgentBanner({ agentId, onClose }: AgentBannerProps) {
     </div>
   );
 
-  const SummaryPanel = () => (
-    <div className="space-y-4 p-4">
-      {/* Session Summary */}
-      <div className="glass-panel p-4">
-        <h4 className="text-white/70 text-sm font-medium mb-3 flex items-center gap-2">
-          <FileText size={16} className="text-purple-400" />
-          Session Summary
-        </h4>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-white/5 rounded-lg p-3 text-center">
-            <div className="text-2xl font-bold text-white">24</div>
-            <div className="text-white/50 text-xs">Total Messages</div>
+  // === PANEL 2: PROMPTS (active + reserve) ===
+  const PromptsPanel = () => {
+    // Mock data — active prompts for current iteration
+    const activePrompts = [
+      { id: 1, text: 'Analyze pricing model risks for enterprise segment', status: 'active' as const, priority: 'high' as const },
+      { id: 2, text: 'Generate 3 alternative pricing approaches with ROI estimates', status: 'active' as const, priority: 'high' as const },
+      { id: 3, text: 'Validate churn rate assumption against industry benchmarks', status: 'running' as const, priority: 'medium' as const },
+    ];
+
+    const reservePrompts = [
+      { id: 4, text: 'Deep-dive competitive analysis: top 5 SaaS pricing models', status: 'reserve' as const, priority: 'medium' as const },
+      { id: 5, text: 'Sensitivity analysis on CAC vs LTV ratio', status: 'reserve' as const, priority: 'low' as const },
+      { id: 6, text: 'Generate executive summary with key decision points', status: 'reserve' as const, priority: 'medium' as const },
+      { id: 7, text: 'Stress-test model with 2x churn scenario', status: 'reserve' as const, priority: 'low' as const },
+    ];
+
+    const statusColors = {
+      active: '#4CAF50',
+      running: '#FF9800',
+      reserve: '#607D8B',
+    };
+
+    const priorityIcons = {
+      high: Zap,
+      medium: Target,
+      low: Archive,
+    };
+
+    return (
+      <ScrollArea className="h-full">
+        <div className="space-y-4 p-4">
+          {/* Active Prompts */}
+          <div className="glass-panel p-4">
+            <h4 className="text-white/70 text-sm font-medium mb-3 flex items-center gap-2">
+              <Zap size={16} className="text-green-400" />
+              Active Prompts
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-400">
+                {activePrompts.length} active
+              </span>
+            </h4>
+            <div className="space-y-2">
+              {activePrompts.map((prompt) => {
+                const PriorityIcon = priorityIcons[prompt.priority];
+                return (
+                  <div key={prompt.id} className="flex items-start gap-3 p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
+                    <div
+                      className="w-2 h-2 rounded-full mt-1.5 shrink-0"
+                      style={{ backgroundColor: statusColors[prompt.status] }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white/90 text-sm leading-relaxed">{prompt.text}</p>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded"
+                          style={{ backgroundColor: `${statusColors[prompt.status]}20`, color: statusColors[prompt.status] }}
+                        >
+                          {prompt.status === 'running' ? '⟳ running' : '● active'}
+                        </span>
+                        <PriorityIcon size={10} className="text-white/40" />
+                        <span className="text-white/40 text-[10px]">{prompt.priority}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <div className="bg-white/5 rounded-lg p-3 text-center">
-            <div className="text-2xl font-bold text-green-400">7</div>
-            <div className="text-white/50 text-xs">Key Insights</div>
+
+          {/* Reserve Prompts */}
+          <div className="glass-panel p-4">
+            <h4 className="text-white/70 text-sm font-medium mb-3 flex items-center gap-2">
+              <Shield size={16} className="text-gray-400" />
+              Reserve Prompts
+              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-white/10 text-white/50">
+                {reservePrompts.length} queued
+              </span>
+            </h4>
+            <div className="space-y-2">
+              {reservePrompts.map((prompt) => {
+                const PriorityIcon = priorityIcons[prompt.priority];
+                return (
+                  <div key={prompt.id} className="flex items-start gap-3 p-2.5 rounded-lg bg-white/3 hover:bg-white/5 transition-colors opacity-70 hover:opacity-100">
+                    <div className="w-2 h-2 rounded-full mt-1.5 shrink-0 bg-white/20" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white/60 text-sm leading-relaxed">{prompt.text}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <PriorityIcon size={10} className="text-white/30" />
+                        <span className="text-white/30 text-[10px]">{prompt.priority}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <div className="bg-white/5 rounded-lg p-3 text-center">
-            <div className="text-2xl font-bold text-blue-400">3</div>
-            <div className="text-white/50 text-xs">Decisions Made</div>
+        </div>
+      </ScrollArea>
+    );
+  };
+
+  // === PANEL 3: METRICS ===
+  const MetricsPanel = () => (
+    <ScrollArea className="h-full">
+      <div className="space-y-4 p-4">
+        {/* Performance Metrics */}
+        <div className="glass-panel p-4">
+          <h4 className="text-white/70 text-sm font-medium mb-3 flex items-center gap-2">
+            <BarChart3 size={16} className="text-indigo-400" />
+            Performance Metrics
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: 'Response Time', value: '1.2s', icon: Clock, color: '#4CAF50' },
+              { label: 'Accuracy Score', value: '94%', icon: TrendingUp, color: '#2196F3' },
+              { label: 'Tasks Completed', value: '47', icon: Check, color: '#FF9800' },
+              { label: 'Active Iterations', value: '3', icon: Activity, color: '#9C27B0' },
+              { label: 'Resource Usage', value: '62%', icon: Cpu, color: '#00BCD4' },
+              { label: 'Contributions', value: 'High', icon: Layers, color: '#E91E63' },
+            ].map((metric) => (
+              <div key={metric.label} className="bg-white/5 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <metric.icon size={14} style={{ color: metric.color }} />
+                  <span className="text-white/50 text-xs">{metric.label}</span>
+                </div>
+                <div className="text-white text-lg font-semibold">{metric.value}</div>
+              </div>
+            ))}
           </div>
-          <div className="bg-white/5 rounded-lg p-3 text-center">
-            <div className="text-2xl font-bold text-orange-400">5</div>
-            <div className="text-white/50 text-xs">Action Items</div>
+        </div>
+
+        {/* Current Tasks */}
+        <div className="glass-panel p-4">
+          <h4 className="text-white/70 text-sm font-medium mb-3 flex items-center gap-2">
+            <Check size={16} className="text-green-400" />
+            Current Tasks
+          </h4>
+          <div className="space-y-2">
+            {[
+              { task: 'Analyze pricing model risks', completed: true },
+              { task: 'Generate alternative approaches', completed: true },
+              { task: 'Validate enterprise segment assumptions', completed: false },
+              { task: 'Prepare synthesis report', completed: false },
+            ].map((item, idx) => (
+              <label 
+                key={idx} 
+                className="flex items-center gap-3 p-2 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer transition-colors"
+              >
+                <input 
+                  type="checkbox" 
+                  checked={item.completed}
+                  readOnly
+                  className="w-4 h-4 rounded border-white/30 bg-white/10 text-indigo-500 focus:ring-indigo-500"
+                />
+                <span className={cn(
+                  "text-sm transition-all",
+                  item.completed ? "text-white/40 line-through" : "text-white/80"
+                )}>
+                  {item.task}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Session Summary */}
+        <div className="glass-panel p-4">
+          <h4 className="text-white/70 text-sm font-medium mb-3 flex items-center gap-2">
+            <FileText size={16} className="text-purple-400" />
+            Session Summary
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white/5 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-white">24</div>
+              <div className="text-white/50 text-xs">Total Messages</div>
+            </div>
+            <div className="bg-white/5 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-green-400">7</div>
+              <div className="text-white/50 text-xs">Key Insights</div>
+            </div>
+            <div className="bg-white/5 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-blue-400">3</div>
+              <div className="text-white/50 text-xs">Decisions Made</div>
+            </div>
+            <div className="bg-white/5 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-orange-400">5</div>
+              <div className="text-white/50 text-xs">Action Items</div>
+            </div>
           </div>
         </div>
       </div>
-
-      {/* Export Options */}
-      <div className="glass-panel p-4">
-        <h4 className="text-white/70 text-sm font-medium mb-3">Export Options</h4>
-        <div className="space-y-2">
-          {[
-            { label: 'Full Transcription', icon: FileText },
-            { label: 'Summary Report', icon: BarChart3 },
-            { label: 'Context Snapshot', icon: Layers },
-            { label: 'Prompt for Next Session', icon: MessageSquare },
-          ].map((option) => (
-            <button
-              key={option.label}
-              className="w-full flex items-center gap-3 p-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white text-sm transition-colors"
-            >
-              <option.icon size={16} className="text-white/50" />
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Context for Next Session */}
-      <div className="glass-panel p-4">
-        <h4 className="text-white/70 text-sm font-medium mb-2">Context for Next Session</h4>
-        <textarea
-          readOnly
-          value={`Current focus: Pricing model validation for enterprise segment.\nNext steps: Test adjusted churn rate assumption (20%).\nOpen questions: CAC sensitivity analysis needed.`}
-          className="w-full h-24 bg-white/5 border border-white/10 rounded-lg p-3 text-white/70 text-sm resize-none"
-        />
-      </div>
-    </div>
+    </ScrollArea>
   );
+
+  // Panel labels for indicators
+  const panelLabels = {
+    chat: 'Chat',
+    prompts: 'Prompts',
+    metrics: 'Metrics',
+  };
 
   return (
     <AnimatePresence>
@@ -423,9 +520,7 @@ export function AgentBanner({ agentId, onClose }: AgentBannerProps) {
                       }}
                       className={cn(
                         "w-9 h-9 rounded-full flex items-center justify-center transition-all",
-                        isActive 
-                          ? "bg-white/20" 
-                          : "bg-white/5 hover:bg-white/10"
+                        isActive ? "bg-white/20" : "bg-white/5 hover:bg-white/10"
                       )}
                       title={mode.label}
                     >
@@ -443,19 +538,13 @@ export function AgentBanner({ agentId, onClose }: AgentBannerProps) {
                       <button
                         key={a.id}
                         className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium transition-colors"
-                        style={{ 
-                          backgroundColor: `${a.color}30`,
-                          color: a.color 
-                        }}
+                        style={{ backgroundColor: `${a.color}30`, color: a.color }}
                       >
                         {a.name[0]}
                       </button>
                     ))}
                   </div>
-                  <button 
-                    onClick={() => setShowRoutingSelector(false)}
-                    className="text-white/50 hover:text-white/80"
-                  >
+                  <button onClick={() => setShowRoutingSelector(false)} className="text-white/50 hover:text-white/80">
                     <X size={14} />
                   </button>
                 </div>
@@ -463,20 +552,25 @@ export function AgentBanner({ agentId, onClose }: AgentBannerProps) {
             </div>
           </div>
 
-          {/* Panel Content */}
-          <div className="flex-1 overflow-hidden">
+          {/* Panel Content — with swipe support */}
+          <div
+            ref={contentRef}
+            className="flex-1 overflow-hidden"
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+          >
             <AnimatePresence mode="wait">
               <motion.div
                 key={bannerPanel}
-                initial={{ opacity: 0, x: bannerPanel === 'chat' ? 20 : -20 }}
+                initial={{ opacity: 0, x: 40 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: bannerPanel === 'chat' ? -20 : 20 }}
+                exit={{ opacity: 0, x: -40 }}
                 transition={{ duration: 0.2 }}
                 className="h-full"
               >
-                {bannerPanel === 'metrics' && <MetricsPanel />}
                 {bannerPanel === 'chat' && <ChatPanel />}
-                {bannerPanel === 'summary' && <SummaryPanel />}
+                {bannerPanel === 'prompts' && <PromptsPanel />}
+                {bannerPanel === 'metrics' && <MetricsPanel />}
               </motion.div>
             </AnimatePresence>
           </div>
@@ -500,12 +594,20 @@ export function AgentBanner({ agentId, onClose }: AgentBannerProps) {
                       key={panel}
                       onClick={() => setBannerPanel(panel)}
                       className={cn(
-                        "w-2.5 h-2.5 rounded-full transition-all",
+                        "flex items-center gap-1 px-2 py-1 rounded-full transition-all text-xs",
                         idx === currentPanelIndex 
-                          ? "bg-indigo-500 w-4" 
-                          : "bg-white/20 hover:bg-white/40"
+                          ? "bg-indigo-500/30 text-indigo-300" 
+                          : "bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"
                       )}
-                    />
+                    >
+                      <span
+                        className={cn(
+                          "w-1.5 h-1.5 rounded-full transition-all",
+                          idx === currentPanelIndex ? "bg-indigo-400" : "bg-white/20"
+                        )}
+                      />
+                      {panelLabels[panel]}
+                    </button>
                   ))}
                 </div>
                 
@@ -518,7 +620,12 @@ export function AgentBanner({ agentId, onClose }: AgentBannerProps) {
                 </button>
               </div>
 
-              {/* Input Mode & Send */}
+              {/* Swipe hint */}
+              <div className="text-white/20 text-[10px] hidden sm:block">
+                ← swipe →
+              </div>
+
+              {/* Input Mode */}
               <div className="flex items-center gap-2">
                 {inputModes.map((mode) => {
                   const Icon = mode.icon;

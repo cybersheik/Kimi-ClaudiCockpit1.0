@@ -51,7 +51,7 @@ export interface CommunicationLogEntry {
 }
 
 export type WorkModeType = 'open' | 'closed' | 'review';
-export type BannerPanel = 'metrics' | 'chat' | 'summary';
+export type BannerPanel = 'chat' | 'prompts' | 'metrics';
 export type RoutingMode = 'all' | 'selected' | 'cycle' | 'sequence' | 'parallel' | 'direct' | 'human' | 'bookmark';
 
 // Access control types
